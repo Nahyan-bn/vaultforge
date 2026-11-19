@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    background-color: #05070D;
+    color: #E8EEF9;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Cyber Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B1220;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1E2D4A;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2F6BFF;
+}
+
+/* Glass & Glow utilities */
+.cyber-glass {
+  background: rgba(16, 26, 46, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(34, 227, 255, 0.1);
+}
+
+.cyber-panel {
+  background: #101A2E;
+  border: 1px solid #1E2D4A;
+}
+
+.cyber-panel-elevated {
+  background: #16233D;
+  border: 1px solid #2E436D;
+}
+
+.cyber-glow-border {
+  box-shadow: 0 0 15px -3px rgba(34, 227, 255, 0.25), inset 0 0 15px -5px rgba(47, 107, 255, 0.15);
+}
+
+.radar-grid {
+  background-image: 
+    radial-gradient(circle at center, transparent 0, transparent 40px, rgba(34, 227, 255, 0.08) 40px, rgba(34, 227, 255, 0.08) 41px, transparent 41px, transparent 80px, rgba(34, 227, 255, 0.08) 80px, rgba(34, 227, 255, 0.08) 81px, transparent 81px, transparent 120px, rgba(34, 227, 255, 0.08) 120px, rgba(34, 227, 255, 0.08) 121px, transparent 121px),
+    linear-gradient(to right, rgba(34, 227, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34, 227, 255, 0.05) 1px, transparent 1px);
+  background-size: 100% 100%, 20px 20px, 20px 20px;
+}
