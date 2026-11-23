@@ -13,6 +13,14 @@ import {
   type VaultPreferences
 } from '../storage/indexedDb';
 import type { DecryptedRecord, VaultAnalytics } from '../types/vault';
+import type {
+  AuthMethodType,
+  PinAuthConfig,
+  BiometricAuthConfig,
+  IrisScanConfig,
+  GovernmentVerificationRecord
+} from '../types/auth';
+import { webAuthnService } from '../services/webAuthnService';
 import { analyzeVaultHealth } from '../utils/securityAnalysis';
 
 interface VaultState {
@@ -38,10 +46,21 @@ interface VaultState {
     name: string,
     color: string,
     masterPassword: string,
-    customKdfParams?: { opslimit: number; memlimit: number }
+    customKdfParams?: { opslimit: number; memlimit: number },
+    initialPin?: string
   ) => Promise<{ recoveryKeyHex: string; vaultId: string }>;
   unlockVault: (vaultId: string, masterPassword: string) => Promise<boolean>;
   unlockWithRecoveryKey: (vaultId: string, recoveryKeyHex: string) => Promise<boolean>;
+  unlockWithPin: (vaultId: string, pin: string) => Promise<boolean>;
+  unlockWithBiometrics: (vaultId: string) => Promise<boolean>;
+  setupPin: (pin: string) => Promise<boolean>;
+  removePin: () => Promise<boolean>;
+  setupBiometrics: () => Promise<boolean>;
+  removeBiometrics: () => Promise<boolean>;
+  updateIrisConfig: (config: IrisScanConfig) => Promise<void>;
+  updateGovVerification: (record: GovernmentVerificationRecord) => Promise<void>;
+  clearGovVerification: () => Promise<void>;
+  setPreferredAuthMethod: (method: AuthMethodType) => Promise<void>;
   lockVault: () => Promise<void>;
   panicLock: () => Promise<void>;
   updateActivity: () => void;
@@ -100,7 +119,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  createVault: async (name, color, masterPassword, customKdfParams) => {
+  createVault: async (name, color, masterPassword, customKdfParams, initialPin) => {
     set({ isLoading: true, errorMessage: null });
     const isDemo = get().isDemoMode;
 
@@ -135,8 +154,32 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       const { hashHex: recoveryKekHex } = await cryptoBridge.hashDigest(`VF_RECOVERY_KEY_DERIVATION:${recoveryKeyHex}`);
       const { wrapped: recoveryWrappedDek } = await cryptoBridge.wrapKey(dekHex, recoveryKekHex, 'VAULTFORGE_RECOVERY_ENVELOPE_V1');
 
-      const vaultId = `vf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const now = Date.now();
+      const vaultId = `vf_${now}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // 7. Optional 6-digit PIN configuration during creation
+      let pinAuth: PinAuthConfig | undefined = undefined;
+      if (initialPin && /^\d{6}$/.test(initialPin)) {
+        const pinSaltGen = await cryptoBridge.generateDek();
+        const pinSaltHex = pinSaltGen.dekHex.slice(0, 32);
+        const pinKdfParams = {
+          opslimit: 3,
+          memlimit: 32 * 1024 * 1024,
+          algorithm: defaultKdf.algorithm
+        };
+        const { kekHex: pinKekHex } = await cryptoBridge.deriveKek(initialPin, pinSaltHex, pinKdfParams);
+        const { wrapped: pinWrappedDek } = await cryptoBridge.wrapKey(dekHex, pinKekHex, 'VAULTFORGE_PIN_ENVELOPE_V1');
+        pinAuth = {
+          enabled: true,
+          saltHex: pinSaltHex,
+          wrappedDek: pinWrappedDek,
+          kdfParams: pinKdfParams,
+          failedAttempts: 0,
+          lockedUntil: 0,
+          maxAttempts: 5,
+          updatedAt: now
+        };
+      }
 
       const newVault: VaultMetadata = {
         id: vaultId,
@@ -146,6 +189,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         kdfParams,
         primaryWrappedDek,
         recoveryWrappedDek,
+        pinAuth,
+        preferredAuthMethod: pinAuth ? 'pin' : 'password',
         createdAt: now,
         updatedAt: now
       };
@@ -154,7 +199,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
       // Log creation audit event
       const genesisHash = '0000000000000000000000000000000000000000000000000000000000000000';
-      const eventDesc = `Vault "${name}" created with Argon2id parameters (m=${kdfParams.memlimit / 1024 / 1024}MB, t=${kdfParams.opslimit})`;
+      const eventDesc = `Vault "${name}" created with Argon2id parameters (m=${kdfParams.memlimit / 1024 / 1024}MB, t=${kdfParams.opslimit})${pinAuth ? ' and 6-digit PIN protection' : ''}`;
       const { hashHex: currHash } = await cryptoBridge.hashDigest(`${genesisHash}:${eventDesc}:${now}`);
 
       const auditEvent: AuditEventRow = {
@@ -299,6 +344,312 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       set({ isLoading: false, errorMessage: e?.message || 'Invalid recovery key' });
       return false;
     }
+  },
+
+  unlockWithPin: async (vaultId, pin) => {
+    set({ isLoading: true, errorMessage: null });
+    const isDemo = get().isDemoMode;
+
+    try {
+      await cryptoBridge.init();
+      const vault = await storageManager.getVaultMetadata(vaultId, isDemo);
+      if (!vault || !vault.pinAuth || !vault.pinAuth.enabled) {
+        throw new Error('Six-digit PIN authentication is not configured for this vault');
+      }
+
+      const now = Date.now();
+      if (vault.pinAuth.lockedUntil && vault.pinAuth.lockedUntil > now) {
+        const remSecs = Math.ceil((vault.pinAuth.lockedUntil - now) / 1000);
+        const msg = `PIN access locked due to failed attempts. Try again in ${remSecs}s.`;
+        set({ isLoading: false, errorMessage: msg });
+        return false;
+      }
+
+      const { kekHex: pinKekHex } = await cryptoBridge.deriveKek(
+        pin,
+        vault.pinAuth.saltHex,
+        vault.pinAuth.kdfParams
+      );
+
+      let dekHex: string;
+      try {
+        const unwrapped = await cryptoBridge.unwrapKey(
+          vault.pinAuth.wrappedDek,
+          pinKekHex,
+          'VAULTFORGE_PIN_ENVELOPE_V1'
+        );
+        dekHex = unwrapped.dekHex;
+
+        // Reset failed attempts upon success
+        if (vault.pinAuth.failedAttempts > 0 || vault.pinAuth.lockedUntil > 0) {
+          vault.pinAuth.failedAttempts = 0;
+          vault.pinAuth.lockedUntil = 0;
+          await storageManager.saveVaultMetadata(vault, isDemo);
+        }
+      } catch {
+        const failed = (vault.pinAuth.failedAttempts || 0) + 1;
+        const max = vault.pinAuth.maxAttempts || 5;
+        let lockUntil = 0;
+        if (failed >= max) {
+          const backoffMinutes = Math.min(30, Math.pow(2, failed - max));
+          lockUntil = now + backoffMinutes * 60 * 1000;
+        }
+
+        const updatedVault: VaultMetadata = {
+          ...vault,
+          pinAuth: {
+            ...vault.pinAuth,
+            failedAttempts: failed,
+            lockedUntil: lockUntil
+          }
+        };
+        await storageManager.saveVaultMetadata(updatedVault, isDemo);
+        await get().logAudit('AUTH', 'WARNING', `Failed PIN unlock attempt (${failed}/${max})`);
+
+        const remaining = Math.max(0, max - failed);
+        const errText = remaining === 0
+          ? 'Maximum PIN attempts exceeded. Temporary lockout initiated.'
+          : `Incorrect PIN. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before lockout.`;
+        set({ isLoading: false, errorMessage: errText });
+        return false;
+      }
+
+      const encryptedRows = await storageManager.getEncryptedRecords(vaultId, isDemo);
+      const decryptedRecords: DecryptedRecord[] = [];
+
+      for (const row of encryptedRows) {
+        try {
+          const { plaintext } = await cryptoBridge.openRecord(row.encryptedPayload, dekHex);
+          decryptedRecords.push(JSON.parse(plaintext));
+        } catch (decryptErr) {
+          console.error(`Record ${row.id} failed AEAD authentication:`, decryptErr);
+        }
+      }
+
+      const auditEvents = await storageManager.getAuditEvents(vaultId, isDemo);
+      const analytics = analyzeVaultHealth(decryptedRecords, get().preferences.passwordAgeThresholdDays);
+
+      set({
+        activeVault: vault,
+        isUnlocked: true,
+        activeDekHex: dekHex,
+        records: decryptedRecords,
+        analytics,
+        auditEvents,
+        isLoading: false,
+        lastActivity: Date.now(),
+        autoLockRemainingSeconds: get().preferences.autoLockMinutes * 60
+      });
+
+      await get().logAudit('AUTH', 'INFO', `Vault "${vault.name}" unlocked via Six-Digit PIN`);
+      return true;
+    } catch (e: any) {
+      set({ isLoading: false, errorMessage: e?.message || 'PIN unlock failed' });
+      return false;
+    }
+  },
+
+  unlockWithBiometrics: async (vaultId) => {
+    set({ isLoading: true, errorMessage: null });
+    const isDemo = get().isDemoMode;
+
+    try {
+      await cryptoBridge.init();
+      const vault = await storageManager.getVaultMetadata(vaultId, isDemo);
+      if (!vault || !vault.biometricAuth || !vault.biometricAuth.enabled) {
+        throw new Error('Biometric passkey authentication is not registered on this device');
+      }
+
+      const dekHex = await webAuthnService.authenticateBiometric(vaultId, vault.biometricAuth);
+
+      const encryptedRows = await storageManager.getEncryptedRecords(vaultId, isDemo);
+      const decryptedRecords: DecryptedRecord[] = [];
+
+      for (const row of encryptedRows) {
+        try {
+          const { plaintext } = await cryptoBridge.openRecord(row.encryptedPayload, dekHex);
+          decryptedRecords.push(JSON.parse(plaintext));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const auditEvents = await storageManager.getAuditEvents(vaultId, isDemo);
+      const analytics = analyzeVaultHealth(decryptedRecords, get().preferences.passwordAgeThresholdDays);
+
+      set({
+        activeVault: vault,
+        isUnlocked: true,
+        activeDekHex: dekHex,
+        records: decryptedRecords,
+        analytics,
+        auditEvents,
+        isLoading: false,
+        lastActivity: Date.now(),
+        autoLockRemainingSeconds: get().preferences.autoLockMinutes * 60
+      });
+
+      await get().logAudit('AUTH', 'INFO', `Vault "${vault.name}" unlocked via Platform Biometrics (WebAuthn / Passkey)`);
+      return true;
+    } catch (e: any) {
+      set({ isLoading: false, errorMessage: e?.message || 'Biometric authentication failed' });
+      return false;
+    }
+  },
+
+  setupPin: async (pin: string) => {
+    const { activeVault, activeDekHex, isDemoMode } = get();
+    if (!activeVault || !activeDekHex) return false;
+    if (!/^\d{6}$/.test(pin)) {
+      set({ errorMessage: 'PIN must be exactly 6 digits (0-9)' });
+      return false;
+    }
+
+    const pinSaltGen = await cryptoBridge.generateDek();
+    const pinSaltHex = pinSaltGen.dekHex.slice(0, 32);
+    const pinKdfParams = {
+      opslimit: 3,
+      memlimit: 32 * 1024 * 1024,
+      algorithm: 2
+    };
+    const { kekHex: pinKekHex } = await cryptoBridge.deriveKek(pin, pinSaltHex, pinKdfParams);
+    const { wrapped: pinWrappedDek } = await cryptoBridge.wrapKey(activeDekHex, pinKekHex, 'VAULTFORGE_PIN_ENVELOPE_V1');
+
+    const pinConfig: PinAuthConfig = {
+      enabled: true,
+      saltHex: pinSaltHex,
+      wrappedDek: pinWrappedDek,
+      kdfParams: pinKdfParams,
+      failedAttempts: 0,
+      lockedUntil: 0,
+      maxAttempts: 5,
+      updatedAt: Date.now()
+    };
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      pinAuth: pinConfig,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'INFO', 'Configured 6-digit PIN envelope encryption');
+    return true;
+  },
+
+  removePin: async () => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return false;
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      pinAuth: undefined,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'WARNING', 'Disabled 6-digit PIN authentication');
+    return true;
+  },
+
+  setupBiometrics: async () => {
+    const { activeVault, activeDekHex, isDemoMode } = get();
+    if (!activeVault || !activeDekHex) return false;
+
+    try {
+      const bioConfig = await webAuthnService.registerBiometric(activeVault.id, activeVault.name, activeDekHex);
+      const updatedVault: VaultMetadata = {
+        ...activeVault,
+        biometricAuth: bioConfig,
+        updatedAt: Date.now()
+      };
+
+      await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+      set({ activeVault: updatedVault });
+      await get().logAudit('AUTH', 'INFO', 'Registered biometric passkey / platform authenticator');
+      return true;
+    } catch (e: any) {
+      set({ errorMessage: e?.message || 'Failed to register biometric authenticator' });
+      return false;
+    }
+  },
+
+  removeBiometrics: async () => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return false;
+
+    webAuthnService.revokeBiometric(activeVault.id);
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      biometricAuth: undefined,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'WARNING', 'Revoked biometric authenticator credential');
+    return true;
+  },
+
+  updateIrisConfig: async (config: IrisScanConfig) => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return;
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      irisConfig: config,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'INFO', `Iris scanner configuration updated (${config.driverType})`);
+  },
+
+  updateGovVerification: async (record: GovernmentVerificationRecord) => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return;
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      govVerification: record,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'INFO', `Identity verified: ${record.status} (${record.maskedIdentifier})`);
+  },
+
+  clearGovVerification: async () => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return;
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      govVerification: undefined,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'WARNING', 'Cleared Government Identity Verification record');
+  },
+
+  setPreferredAuthMethod: async (method: AuthMethodType) => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return;
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      preferredAuthMethod: method,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
   },
 
   lockVault: async () => {

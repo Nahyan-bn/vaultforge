@@ -43,6 +43,11 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
   const [argonMemoryMB, setArgonMemoryMB] = useState(64);
   const [argonOps, setArgonOps] = useState(3);
 
+  // Optional 6-digit PIN setup
+  const [setupPinEnabled, setSetupPinEnabled] = useState(false);
+  const [initialPin, setInitialPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+
   const [isCreating, setIsCreating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -86,10 +91,16 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
     setIsCreating(true);
     setErrorMessage(null);
     try {
-      await createVault(vaultName, vaultColor, masterPassword, {
-        opslimit: argonOps,
-        memlimit: argonMemoryMB * 1024 * 1024
-      });
+      await createVault(
+        vaultName,
+        vaultColor,
+        masterPassword,
+        {
+          opslimit: argonOps,
+          memlimit: argonMemoryMB * 1024 * 1024
+        },
+        setupPinEnabled && initialPin.length === 6 ? initialPin : undefined
+      );
       onNavigate('dashboard');
     } catch (e: any) {
       setErrorMessage(e?.message || 'Failed to initialize vault');
@@ -458,6 +469,51 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
                   <span className="text-white font-bold">{argonOps} passes</span>
                 </div>
               </div>
+
+              {/* Optional 6-Digit PIN Setup */}
+              <div className="p-3.5 rounded-xl bg-cyber-bg border border-cyber-border space-y-3">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={setupPinEnabled}
+                      onChange={(e) => setSetupPinEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded border-cyber-border text-cyber-cyan focus:ring-0 bg-cyber-card"
+                    />
+                    <span className="font-bold text-white uppercase text-[11px]">Configure 6-Digit PIN Now (Optional)</span>
+                  </div>
+                  <span className="text-[10px] text-cyber-cyan font-bold bg-cyber-cyan/10 px-2 py-0.5 rounded border border-cyber-cyan/30">
+                    ARGON2ID ENVELOPE
+                  </span>
+                </label>
+
+                {setupPinEnabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-cyber-border/40">
+                    <div>
+                      <label className="block text-cyber-muted mb-1 text-[10px] uppercase">6-Digit PIN:</label>
+                      <input
+                        type="password"
+                        maxLength={6}
+                        value={initialPin}
+                        onChange={(e) => setInitialPin(e.target.value.replace(/\D/g, ''))}
+                        placeholder="••••••"
+                        className="w-full px-3 py-1.5 rounded-lg bg-cyber-card border border-cyber-border text-white text-xs tracking-widest text-center"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-cyber-muted mb-1 text-[10px] uppercase">Confirm PIN:</label>
+                      <input
+                        type="password"
+                        maxLength={6}
+                        value={confirmPin}
+                        onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
+                        placeholder="••••••"
+                        className="w-full px-3 py-1.5 rounded-lg bg-cyber-card border border-cyber-border text-white text-xs tracking-widest text-center"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="pt-4 flex justify-between">
@@ -503,10 +559,16 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
                 <span className="text-cyber-muted">Cipher:</span>
                 <span className="text-cyber-primary font-bold">XChaCha20-Poly1305 (24-byte nonce)</span>
               </div>
-              <div className="flex justify-between py-1">
+              <div className="flex justify-between py-1 border-b border-cyber-border/40">
                 <span className="text-cyber-muted">Envelope Keys:</span>
                 <span className="text-cyber-success font-bold">Primary & Recovery Wrapped DEKs</span>
               </div>
+              {setupPinEnabled && initialPin.length === 6 && (
+                <div className="flex justify-between py-1">
+                  <span className="text-cyber-muted">PIN Protection:</span>
+                  <span className="text-cyber-cyan font-bold">Enabled (6-digit Argon2id envelope)</span>
+                </div>
+              )}
             </div>
 
             <div className="pt-4 flex justify-between">

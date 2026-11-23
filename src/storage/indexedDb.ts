@@ -5,6 +5,13 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { KdfParams, WrappedKey, EncryptedPayload } from '../crypto/types';
+import type {
+  PinAuthConfig,
+  BiometricAuthConfig,
+  IrisScanConfig,
+  GovernmentVerificationRecord,
+  AuthMethodType
+} from '../types/auth';
 
 export interface VaultMetadata {
   id: string;
@@ -16,6 +23,11 @@ export interface VaultMetadata {
   recoveryWrappedDek: WrappedKey;
   createdAt: number;
   updatedAt: number;
+  pinAuth?: PinAuthConfig;
+  biometricAuth?: BiometricAuthConfig;
+  irisConfig?: IrisScanConfig;
+  govVerification?: GovernmentVerificationRecord;
+  preferredAuthMethod?: AuthMethodType;
 }
 
 export interface EncryptedRecordRow {

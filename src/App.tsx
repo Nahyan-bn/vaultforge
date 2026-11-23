@@ -14,6 +14,7 @@ import { IntegrityMonitor } from './pages/IntegrityMonitor';
 import { BackupRestore } from './pages/BackupRestore';
 import { Settings } from './pages/Settings';
 import { LearnCenter } from './pages/LearnCenter';
+import { AuthDashboard } from './components/auth/AuthDashboard';
 import { useVaultStore } from './store/vaultStore';
 
 export const App: React.FC = () => {
@@ -32,6 +33,7 @@ export const App: React.FC = () => {
       {currentTab === 'create' && <VaultCreation onNavigate={handleNavigate} />}
       {currentTab === 'unlock' && <UnlockVault onNavigate={handleNavigate} />}
       {currentTab === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
+      {currentTab === 'auth' && <AuthDashboard onNavigate={handleNavigate} onOpenSettings={() => handleNavigate('settings')} />}
       {currentTab === 'vault' && <CredentialVault onNavigate={handleNavigate} />}
       {currentTab === 'generator' && <PasswordGenerator onNavigate={handleNavigate} />}
       {currentTab === 'radar' && <HealthRadar onNavigate={handleNavigate} />}

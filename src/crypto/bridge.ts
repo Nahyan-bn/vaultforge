@@ -28,6 +28,10 @@ class CryptoBridge {
   }
 
   private initWorker() {
+    if (typeof Worker === 'undefined') {
+      return;
+    }
+
     // In Vite, import worker with worker constructor syntax
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), {
       type: 'module'

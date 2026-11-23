@@ -18,7 +18,8 @@ import {
   ExternalLink,
   CheckCircle2,
   Clock,
-  Sparkles
+  Sparkles,
+  Fingerprint
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -68,6 +69,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           >
             <KeyRound className="w-3.5 h-3.5" />
             <span>Studio</span>
+          </button>
+
+          <button
+            onClick={() => onNavigate('auth')}
+            className="px-3.5 py-2 rounded-xl bg-cyber-card hover:bg-cyber-elevated border border-cyber-border hover:border-cyber-cyan/40 text-cyber-cyan text-xs font-mono font-bold transition-colors flex items-center gap-1.5"
+          >
+            <Fingerprint className="w-3.5 h-3.5" />
+            <span>Auth Layers</span>
           </button>
 
           <button
