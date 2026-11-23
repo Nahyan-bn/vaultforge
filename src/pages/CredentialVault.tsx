@@ -29,9 +29,10 @@ import {
 
 interface CredentialVaultProps {
   onNavigate: (tab: string) => void;
+  filterFavorites?: boolean;
 }
 
-export const CredentialVault: React.FC<CredentialVaultProps> = ({ onNavigate }) => {
+export const CredentialVault: React.FC<CredentialVaultProps> = ({ onNavigate, filterFavorites = false }) => {
   const { records, addRecord, updateRecord, deleteRecord, restoreRecord, preferences } = useVaultStore();
 
   const [viewMode, setViewMode] = useState<'master-detail' | 'grid'>('master-detail');
@@ -40,6 +41,7 @@ export const CredentialVault: React.FC<CredentialVaultProps> = ({ onNavigate }) 
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
 
+  const [onlyFavorites, setOnlyFavorites] = useState(filterFavorites);
   const [showTrash, setShowTrash] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -69,6 +71,7 @@ export const CredentialVault: React.FC<CredentialVaultProps> = ({ onNavigate }) 
   // Filter records
   const filteredRecords = records.filter((r) => {
     if (showTrash ? !r.isDeleted : r.isDeleted) return false;
+    if (onlyFavorites && !r.isFavorite) return false;
     if (selectedType !== 'ALL' && r.type !== selectedType) return false;
     if (selectedCategory !== 'ALL' && r.category !== selectedCategory) return false;
     if (searchQuery.trim()) {
@@ -273,6 +276,20 @@ export const CredentialVault: React.FC<CredentialVaultProps> = ({ onNavigate }) 
               <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Favorites Filter Toggle */}
+          <button
+            onClick={() => setOnlyFavorites(!onlyFavorites)}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-colors ${
+              onlyFavorites
+                ? 'bg-cyber-warning/20 border-cyber-warning text-cyber-warning font-bold'
+                : 'bg-cyber-card border-cyber-border text-cyber-muted hover:text-white'
+            }`}
+            title="Filter Starred Favorites"
+          >
+            <Star className={`w-3.5 h-3.5 ${onlyFavorites ? 'fill-cyber-warning text-cyber-warning' : ''}`} />
+            <span>Favorites</span>
+          </button>
 
           <button
             onClick={() => setShowTrash(!showTrash)}

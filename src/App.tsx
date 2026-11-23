@@ -16,6 +16,7 @@ import { Settings } from './pages/Settings';
 import { LearnCenter } from './pages/LearnCenter';
 import { AuthDashboard } from './components/auth/AuthDashboard';
 import { IdentitySecurity } from './pages/IdentitySecurity';
+import { SystemDiagnostics } from './pages/SystemDiagnostics';
 import { useVaultStore } from './store/vaultStore';
 
 export const App: React.FC = () => {
@@ -34,15 +35,19 @@ export const App: React.FC = () => {
       {currentTab === 'create' && <VaultCreation onNavigate={handleNavigate} />}
       {currentTab === 'unlock' && <UnlockVault onNavigate={handleNavigate} />}
       {currentTab === 'dashboard' && <Dashboard onNavigate={handleNavigate} />}
-      {currentTab === 'identity' && <IdentitySecurity onNavigate={handleNavigate} />}
+      {(currentTab === 'identity' || currentTab.startsWith('identity-')) && (
+        <IdentitySecurity onNavigate={handleNavigate} />
+      )}
       {currentTab === 'auth' && <AuthDashboard onNavigate={handleNavigate} onOpenSettings={() => handleNavigate('settings')} />}
       {currentTab === 'vault' && <CredentialVault onNavigate={handleNavigate} />}
+      {currentTab === 'favorites' && <CredentialVault onNavigate={handleNavigate} filterFavorites={true} />}
       {currentTab === 'generator' && <PasswordGenerator onNavigate={handleNavigate} />}
       {currentTab === 'radar' && <HealthRadar onNavigate={handleNavigate} />}
       {currentTab === 'lab' && <CryptoLab />}
       {currentTab === 'attacks' && <AttackLab />}
       {currentTab === 'integrity' && <IntegrityMonitor />}
-      {currentTab === 'audit' && <SecurityCenter />}
+      {(currentTab === 'audit' || currentTab === 'audit-logs') && <SecurityCenter />}
+      {currentTab === 'diagnostics' && <SystemDiagnostics />}
       {currentTab === 'backup' && <BackupRestore />}
       {currentTab === 'settings' && <Settings onNavigate={handleNavigate} />}
       {currentTab === 'learn' && <LearnCenter />}

@@ -74,6 +74,27 @@ export const AppShell: React.FC<AppShellProps> = ({ children, currentTab, onNavi
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [panicLock]);
 
+  // If on public landing page, render full bleed without app shell sidebar
+  if (currentTab === 'landing') {
+    return (
+      <div className="min-h-screen bg-cyber-bg text-cyber-text flex flex-col font-sans selection:bg-cyber-primary/30 selection:text-cyber-cyan">
+        {showPanicBanner && (
+          <div className="fixed top-20 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-cyber-danger/90 border border-cyber-danger text-white shadow-2xl backdrop-blur-lg animate-bounce">
+            <ShieldAlert className="w-5 h-5" />
+            <div className="font-mono text-xs">
+              <p className="font-bold">PANIC LOCK TRIGGERED</p>
+              <p className="text-[11px] opacity-90">Session terminated, memory zeroed via sodium_memzero.</p>
+            </div>
+          </div>
+        )}
+        <div className="flex-1 w-full">
+          {children}
+        </div>
+        <TelemetryDrawer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-cyber-bg text-cyber-text flex flex-col font-sans selection:bg-cyber-primary/30 selection:text-cyber-cyan">
       <Navbar onNavigate={onNavigate} currentTab={currentTab} />
