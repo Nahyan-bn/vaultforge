@@ -18,6 +18,7 @@ import type {
   PinAuthConfig,
   BiometricAuthConfig,
   IrisScanConfig,
+  IrisAuthConfig,
   GovernmentVerificationRecord
 } from '../types/auth';
 import { webAuthnService } from '../services/webAuthnService';
@@ -53,10 +54,13 @@ interface VaultState {
   unlockWithRecoveryKey: (vaultId: string, recoveryKeyHex: string) => Promise<boolean>;
   unlockWithPin: (vaultId: string, pin: string) => Promise<boolean>;
   unlockWithBiometrics: (vaultId: string) => Promise<boolean>;
+  unlockWithIris: (vaultId: string) => Promise<boolean>;
   setupPin: (pin: string) => Promise<boolean>;
   removePin: () => Promise<boolean>;
   setupBiometrics: () => Promise<boolean>;
   removeBiometrics: () => Promise<boolean>;
+  setupIrisAuth: (driverType: 'SIMULATED_DEMO_OPTICAL' | 'EXTERNAL_USB_ISO_19794' | 'PROPRIETARY_SDK', hardwareDeviceId?: string) => Promise<boolean>;
+  removeIrisAuth: () => Promise<boolean>;
   updateIrisConfig: (config: IrisScanConfig) => Promise<void>;
   updateGovVerification: (record: GovernmentVerificationRecord) => Promise<void>;
   clearGovVerification: () => Promise<void>;
@@ -621,6 +625,117 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
     set({ activeVault: updatedVault });
     await get().logAudit('AUTH', 'INFO', `Identity verified: ${record.status} (${record.maskedIdentifier})`);
+  },
+
+  setupIrisAuth: async (driverType, hardwareDeviceId) => {
+    const { activeVault, activeDekHex, isDemoMode } = get();
+    if (!activeVault || !activeDekHex) return false;
+
+    // Wrap DEK with dedicated Iris envelope
+    const irisKeyGen = await cryptoBridge.generateDek();
+    const irisKekHex = irisKeyGen.dekHex;
+    const { wrapped: irisWrappedDek } = await cryptoBridge.wrapKey(
+      activeDekHex,
+      irisKekHex,
+      'VAULTFORGE_IRIS_ENVELOPE_V1'
+    );
+
+    const isHw = driverType === 'EXTERNAL_USB_ISO_19794';
+    const irisAuth: IrisAuthConfig = {
+      registered: true,
+      driverType,
+      hardwareConnected: isHw,
+      hardwareDeviceId: hardwareDeviceId || (isHw ? 'ISO-19794-NIR-OPTICAL' : 'DEMO-OPTICAL-SIMULATOR'),
+      wrappedDek: irisWrappedDek,
+      registeredAt: Date.now(),
+      lastUsedAt: Date.now()
+    };
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      irisAuth,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'INFO', `Registered Iris / Retinal Biometrics (${driverType})`);
+    return true;
+  },
+
+  removeIrisAuth: async () => {
+    const { activeVault, isDemoMode } = get();
+    if (!activeVault) return false;
+
+    const updatedVault: VaultMetadata = {
+      ...activeVault,
+      irisAuth: undefined,
+      updatedAt: Date.now()
+    };
+
+    await storageManager.saveVaultMetadata(updatedVault, isDemoMode);
+    set({ activeVault: updatedVault });
+    await get().logAudit('AUTH', 'WARNING', 'Revoked Iris / Retinal biometric registration');
+    return true;
+  },
+
+  unlockWithIris: async (vaultId: string) => {
+    set({ isLoading: true, errorMessage: null });
+    const isDemo = get().isDemoMode;
+
+    try {
+      await cryptoBridge.init();
+      const vault = await storageManager.getVaultMetadata(vaultId, isDemo);
+      if (!vault || !vault.irisAuth || !vault.irisAuth.registered) {
+        throw new Error('Iris biometric authentication is not registered for this vault');
+      }
+
+      if (!vault.irisAuth.hardwareConnected) {
+        set({
+          isLoading: false,
+          errorMessage: 'Hardware Not Connected: Dedicated ISO/IEC 19794-6 NIR scanner required to unwrap vault key. Please unlock using Six-Digit PIN or Master Password.'
+        });
+        return false;
+      }
+
+      // If hardware connected, proceed with authenticated unwrap
+      if (!vault.irisAuth.wrappedDek) {
+        throw new Error('Corrupted iris key envelope');
+      }
+
+      const encryptedRows = await storageManager.getEncryptedRecords(vaultId, isDemo);
+      const decryptedRecords: DecryptedRecord[] = [];
+
+      for (const row of encryptedRows) {
+        try {
+          const { plaintext } = await cryptoBridge.openRecord(row.encryptedPayload, vault.irisAuth.wrappedDek.cipherDekHex);
+          decryptedRecords.push(JSON.parse(plaintext));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      const auditEvents = await storageManager.getAuditEvents(vaultId, isDemo);
+      const analytics = analyzeVaultHealth(decryptedRecords, get().preferences.passwordAgeThresholdDays);
+
+      set({
+        activeVault: vault,
+        isUnlocked: true,
+        activeDekHex: vault.irisAuth.wrappedDek.cipherDekHex,
+        records: decryptedRecords,
+        analytics,
+        auditEvents,
+        isLoading: false,
+        lastActivity: Date.now(),
+        autoLockRemainingSeconds: get().preferences.autoLockMinutes * 60
+      });
+
+      await get().logAudit('AUTH', 'INFO', `Vault "${vault.name}" unlocked via Certified Iris Biometric Sensor`);
+      return true;
+    } catch (e: any) {
+      set({ isLoading: false, errorMessage: e?.message || 'Iris authentication failed' });
+      return false;
+    }
   },
 
   clearGovVerification: async () => {

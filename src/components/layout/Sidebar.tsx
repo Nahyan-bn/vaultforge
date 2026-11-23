@@ -13,7 +13,8 @@ import {
   BookOpen,
   Radio,
   FileCode2,
-  Fingerprint
+  Fingerprint,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -34,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'CORE VAULT',
       items: [
         { id: 'dashboard', label: 'Main Dashboard', icon: LayoutDashboard, requiresUnlock: true },
-        { id: 'auth', label: 'Auth Dashboard', icon: Fingerprint, badge: 'MULTI-LAYER', badgeColor: 'bg-cyber-cyan/20 text-cyber-cyan border-cyber-cyan/30', requiresUnlock: false },
+        { id: 'identity', label: 'My Identity & Security', icon: ShieldCheck, badge: 'MULTI-LAYER', badgeColor: 'bg-cyber-cyan/20 text-cyber-cyan border-cyber-cyan/30', requiresUnlock: true },
         { id: 'vault', label: 'Credential Vault', icon: Database, requiresUnlock: true },
         { id: 'generator', label: 'Password Studio', icon: KeyRound, requiresUnlock: false },
         { id: 'radar', label: 'Health Radar', icon: Radio, requiresUnlock: true },

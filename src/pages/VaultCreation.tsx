@@ -120,7 +120,7 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
             {step === 1 && 'Vault Identity'}
             {step === 2 && 'Master Password'}
             {step === 3 && 'Recovery Setup'}
-            {step === 4 && 'Security Parameters'}
+            {step === 4 && 'Configure Your Security Methods'}
             {step === 5 && 'Vault Creation'}
           </span>
         </div>
@@ -400,123 +400,106 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
           </div>
         )}
 
-        {/* STEP 4: Security Preferences & KDF Tuning */}
+        {/* STEP 4: Configure Your Security Methods */}
         {step === 4 && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-display font-bold text-white">Security Preferences</h2>
+              <h2 className="text-2xl font-display font-bold text-white">Configure Your Security Methods</h2>
               <p className="text-xs text-cyber-muted mt-1">
-                Calibrate Argon2id key derivation parameters and session lock timings.
+                Optionally register additional multi-layer authentication keys now, or configure them later in My Identity & Security.
               </p>
             </div>
 
             <div className="space-y-4 font-mono text-xs">
-              <div>
-                <label className="block text-cyber-muted uppercase tracking-wider mb-2">
-                  Auto-Lock Inactivity Period
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[5, 10, 15, 30].map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setAutoLockMinutes(m)}
-                      className={`py-2 rounded-lg border text-center transition-colors ${
-                        autoLockMinutes === m
-                          ? 'bg-cyber-primary/20 border-cyber-primary text-cyber-cyan font-bold'
-                          : 'bg-cyber-bg border-cyber-border text-cyber-muted hover:text-white'
-                      }`}
-                    >
-                      {m} min
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-cyber-muted uppercase tracking-wider mb-2">
-                  Clipboard Auto-Clear Delay
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[15, 30, 60].map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setClipboardClearSeconds(s)}
-                      className={`py-2 rounded-lg border text-center transition-colors ${
-                        clipboardClearSeconds === s
-                          ? 'bg-cyber-primary/20 border-cyber-primary text-cyber-cyan font-bold'
-                          : 'bg-cyber-bg border-cyber-border text-cyber-muted hover:text-white'
-                      }`}
-                    >
-                      {s} sec
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-cyber-bg border border-cyber-border space-y-2">
-                <div className="flex items-center justify-between text-cyber-violet">
-                  <span className="font-bold">ARGON2ID CALIBRATION</span>
-                  <Cpu className="w-4 h-4" />
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-cyber-muted">
-                  <span>Target Memory Cost:</span>
-                  <span className="text-white font-bold">{argonMemoryMB} MB RAM</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-cyber-muted">
-                  <span>Iterations (opslimit):</span>
-                  <span className="text-white font-bold">{argonOps} passes</span>
-                </div>
-              </div>
-
               {/* Optional 6-Digit PIN Setup */}
-              <div className="p-3.5 rounded-xl bg-cyber-bg border border-cyber-border space-y-3">
+              <div className="p-4 rounded-xl bg-cyber-bg border border-cyber-border space-y-3">
                 <label className="flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
                     <input
                       type="checkbox"
                       checked={setupPinEnabled}
                       onChange={(e) => setSetupPinEnabled(e.target.checked)}
                       className="w-4 h-4 rounded border-cyber-border text-cyber-cyan focus:ring-0 bg-cyber-card"
                     />
-                    <span className="font-bold text-white uppercase text-[11px]">Configure 6-Digit PIN Now (Optional)</span>
+                    <div>
+                      <span className="font-bold text-white uppercase text-xs">1. Register Six-Digit PIN (Optional)</span>
+                      <p className="text-[11px] text-cyber-muted font-normal mt-0.5">
+                        Enables quick numeric unlock backed by a dedicated Argon2id envelope.
+                      </p>
+                    </div>
                   </div>
                   <span className="text-[10px] text-cyber-cyan font-bold bg-cyber-cyan/10 px-2 py-0.5 rounded border border-cyber-cyan/30">
-                    ARGON2ID ENVELOPE
+                    ARGON2ID
                   </span>
                 </label>
 
                 {setupPinEnabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-cyber-border/40">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-cyber-border/40">
                     <div>
-                      <label className="block text-cyber-muted mb-1 text-[10px] uppercase">6-Digit PIN:</label>
+                      <label className="block text-cyber-muted mb-1 text-[10px] uppercase font-bold">6-Digit PIN:</label>
                       <input
                         type="password"
                         maxLength={6}
                         value={initialPin}
                         onChange={(e) => setInitialPin(e.target.value.replace(/\D/g, ''))}
                         placeholder="••••••"
-                        className="w-full px-3 py-1.5 rounded-lg bg-cyber-card border border-cyber-border text-white text-xs tracking-widest text-center"
+                        className="w-full px-3 py-2 rounded-lg bg-cyber-card border border-cyber-border text-white text-xs tracking-widest text-center focus:border-cyber-cyan focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-cyber-muted mb-1 text-[10px] uppercase">Confirm PIN:</label>
+                      <label className="block text-cyber-muted mb-1 text-[10px] uppercase font-bold">Confirm PIN:</label>
                       <input
                         type="password"
                         maxLength={6}
                         value={confirmPin}
                         onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
                         placeholder="••••••"
-                        className="w-full px-3 py-1.5 rounded-lg bg-cyber-card border border-cyber-border text-white text-xs tracking-widest text-center"
+                        className="w-full px-3 py-2 rounded-lg bg-cyber-card border border-cyber-border text-white text-xs tracking-widest text-center focus:border-cyber-cyan focus:outline-none"
                       />
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* Fingerprint & Iris Guidance Card */}
+              <div className="p-4 rounded-xl bg-cyber-bg border border-cyber-border space-y-2">
+                <div className="flex items-center justify-between text-cyber-cyan font-bold">
+                  <span className="uppercase text-[11px]">2. Biometric Passkeys & Iris Scanning</span>
+                  <span className="text-[10px] text-cyber-muted">MY IDENTITY & SECURITY</span>
+                </div>
+                <p className="text-[11px] text-cyber-muted leading-relaxed">
+                  Platform biometrics (Windows Hello, Touch ID) and Iris scanning can be paired directly with your active vault once initialized. You will be able to register, test, and remove them independently in the <strong className="text-white">My Identity & Security</strong> dashboard.
+                </p>
+              </div>
+
+              {/* Argon2id Calibration & Timeout Preferences */}
+              <div className="p-4 rounded-xl bg-cyber-bg border border-cyber-border space-y-3">
+                <div className="flex items-center justify-between text-cyber-violet">
+                  <span className="font-bold uppercase text-[11px]">3. Key Derivation & Session Timeouts</span>
+                  <Cpu className="w-4 h-4" />
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-[11px]">
+                  <div className="flex justify-between py-1 border-b border-cyber-border/40">
+                    <span className="text-cyber-muted">Argon2id Memory:</span>
+                    <span className="text-white font-bold">{argonMemoryMB} MB RAM</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-cyber-border/40">
+                    <span className="text-cyber-muted">KDF Iterations:</span>
+                    <span className="text-white font-bold">{argonOps} passes</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-cyber-muted">Auto-Lock Timer:</span>
+                    <span className="text-white font-bold">{autoLockMinutes} minutes</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-cyber-muted">Clipboard Auto-Clear:</span>
+                    <span className="text-white font-bold">{clipboardClearSeconds} seconds</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="pt-4 flex justify-between">
+            <div className="pt-4 flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setStep(3)}
@@ -524,14 +507,22 @@ export const VaultCreation: React.FC<VaultCreationProps> = ({ onNavigate }) => {
               >
                 Back
               </button>
-              <button
-                type="button"
-                onClick={() => setStep(5)}
-                className="px-6 py-2.5 rounded-xl bg-cyber-primary hover:bg-cyber-primaryHover text-white font-mono text-xs font-bold transition-all flex items-center gap-2"
-              >
-                <span>Review & Finish</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {setupPinEnabled && (initialPin.length !== 6 || initialPin !== confirmPin) ? (
+                  <span className="text-[11px] text-cyber-warning font-mono">
+                    Complete 6-digit PIN confirmation or uncheck
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setStep(5)}
+                  disabled={setupPinEnabled && (initialPin.length !== 6 || initialPin !== confirmPin)}
+                  className="px-6 py-2.5 rounded-xl bg-cyber-primary hover:bg-cyber-primaryHover disabled:opacity-50 text-white font-mono text-xs font-bold transition-all flex items-center gap-2"
+                >
+                  <span>{setupPinEnabled ? 'Continue to Review' : 'Skip & Continue to Review'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         )}

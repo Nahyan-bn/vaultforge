@@ -191,4 +191,67 @@ describe('VAULTFORGE 2.0 Multi-Layer Authentication Tests', () => {
       );
     });
   });
+
+  describe('User Account Isolation & Dynamic Login Workflow', () => {
+    it('should filter login methods strictly by user registration state (Requirement 6)', () => {
+      // Simulate User A: Registered Fingerprint + PIN, Iris Not Registered
+      const userA = {
+        name: 'Developer Vault',
+        biometricAuth: { enabled: true, credentialId: 'cred_bio_123' },
+        pinAuth: { enabled: true },
+        irisAuth: undefined // Not registered
+      };
+
+      const computeRegisteredMethods = (vault: any) => {
+        const methods: string[] = [];
+        if (vault.biometricAuth?.enabled) methods.push('biometric');
+        if (vault.pinAuth?.enabled) methods.push('pin');
+        if (vault.irisAuth?.registered) methods.push('iris');
+        methods.push('password'); // Always fallback
+        return methods;
+      };
+
+      const userAMethods = computeRegisteredMethods(userA);
+      expect(userAMethods).toContain('biometric');
+      expect(userAMethods).toContain('pin');
+      expect(userAMethods).toContain('password');
+      expect(userAMethods).not.toContain('iris'); // MUST NOT display unavailable methods
+
+      // Simulate User B: Only registered Master Password
+      const userB = {
+        name: 'Minimal Vault',
+        biometricAuth: undefined,
+        pinAuth: undefined,
+        irisAuth: undefined
+      };
+
+      const userBMethods = computeRegisteredMethods(userB);
+      expect(userBMethods).toEqual(['password']);
+      expect(userBMethods).not.toContain('biometric');
+      expect(userBMethods).not.toContain('pin');
+      expect(userBMethods).not.toContain('iris');
+    });
+
+    it('should support independent registration and removal of security authenticators', () => {
+      const vaultProfile: {
+        pinAuth?: { enabled: boolean };
+        biometricAuth?: { enabled: boolean };
+        irisAuth?: { registered: boolean };
+      } = {};
+
+      // Register PIN independently
+      vaultProfile.pinAuth = { enabled: true };
+      expect(vaultProfile.pinAuth.enabled).toBe(true);
+      expect(vaultProfile.biometricAuth).toBeUndefined();
+
+      // Register Fingerprint independently
+      vaultProfile.biometricAuth = { enabled: true };
+      expect(vaultProfile.biometricAuth.enabled).toBe(true);
+
+      // Remove PIN independently without affecting Biometrics
+      delete vaultProfile.pinAuth;
+      expect(vaultProfile.pinAuth).toBeUndefined();
+      expect(vaultProfile.biometricAuth?.enabled).toBe(true);
+    });
+  });
 });

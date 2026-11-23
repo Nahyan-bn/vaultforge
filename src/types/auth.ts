@@ -48,6 +48,17 @@ export interface IrisScanConfig {
   updatedAt: number;
 }
 
+export interface IrisAuthConfig {
+  registered: boolean;
+  driverType: 'SIMULATED_DEMO_OPTICAL' | 'EXTERNAL_USB_ISO_19794' | 'PROPRIETARY_SDK';
+  hardwareConnected: boolean;
+  hardwareDeviceId?: string;
+  wrappedDek?: WrappedKey;
+  registeredAt?: number;
+  lastUsedAt?: number;
+  lastScanResult?: IrisScanResult;
+}
+
 export type GovernmentVerificationStatus = 'UNVERIFIED' | 'DEMO_VERIFIED' | 'OFFICIALLY_VERIFIED';
 
 export interface GovernmentVerificationRecord {

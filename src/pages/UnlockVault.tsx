@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useVaultStore } from '../store/vaultStore';
 import { VaultForgeLogo } from '../components/common/VaultForgeLogo';
 import { PinKeypad } from '../components/auth/PinKeypad';
@@ -19,6 +19,8 @@ import {
   Fingerprint,
   RefreshCw,
   HelpCircle,
+  CheckCircle2,
+  XCircle,
   Binary
 } from 'lucide-react';
 import type { AuthMethodType } from '../types/auth';
@@ -34,9 +36,8 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
     unlockWithRecoveryKey,
     unlockWithPin,
     unlockWithBiometrics,
-    refreshVaults,
-    isDemoMode,
-    setDemoMode
+    unlockWithIris,
+    refreshVaults
   } = useVaultStore();
 
   const [selectedVaultId, setSelectedVaultId] = useState('');
@@ -55,7 +56,6 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
   const [recoveryKeyInput, setRecoveryKeyInput] = useState('');
 
   // Biometrics & Iris State
-  const [hasPlatformBio, setHasPlatformBio] = useState(false);
   const [isIrisModalOpen, setIsIrisModalOpen] = useState(false);
 
   // General Status
@@ -64,7 +64,6 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     refreshVaults();
-    webAuthnService.isPlatformAuthenticatorAvailable().then(setHasPlatformBio);
   }, [refreshVaults]);
 
   useEffect(() => {
@@ -75,16 +74,67 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
 
   const selectedVault = availableVaults.find((v) => v.id === selectedVaultId);
 
-  // Auto-switch to vault's preferred method if configured
+  // DYNAMIC FILTERING: Compute the list of authentication methods ACTUALLY REGISTERED for this account
+  const registeredMethods = useMemo(() => {
+    const list: { id: AuthMethodType; label: string; shortLabel: string; icon: any; badge?: string }[] = [];
+
+    // 1. Biometric Passkey (only if registered for this vault)
+    if (selectedVault?.biometricAuth?.enabled) {
+      list.push({
+        id: 'biometric',
+        label: 'Unlock with Fingerprint',
+        shortLabel: 'Fingerprint',
+        icon: Fingerprint,
+        badge: 'ACTIVE'
+      });
+    }
+
+    // 2. Six-Digit PIN (only if registered for this vault)
+    if (selectedVault?.pinAuth?.enabled) {
+      list.push({
+        id: 'pin',
+        label: 'Unlock with Six-Digit PIN',
+        shortLabel: '6-PIN',
+        icon: Lock,
+        badge: 'ACTIVE'
+      });
+    }
+
+    // 3. Iris / Retinal Authentication (only if registered for this vault)
+    if (selectedVault?.irisAuth?.registered) {
+      list.push({
+        id: 'iris',
+        label: selectedVault.irisAuth.hardwareConnected ? 'Unlock with Iris Sensor' : 'Iris Optical HUD',
+        shortLabel: 'Iris Scan',
+        icon: Eye,
+        badge: selectedVault.irisAuth.hardwareConnected ? 'HARDWARE' : 'DEMO'
+      });
+    }
+
+    // 4. Master Password (always available as foundational fallback)
+    list.push({
+      id: 'password',
+      label: 'Unlock with Master Password',
+      shortLabel: 'Password',
+      icon: Key,
+      badge: 'C-CORE'
+    });
+
+    return list;
+  }, [selectedVault]);
+
+  // Ensure active tab matches a registered method when vault selection changes
   useEffect(() => {
-    if (selectedVault?.preferredAuthMethod) {
-      if (selectedVault.preferredAuthMethod === 'pin' && selectedVault.pinAuth?.enabled) {
-        setActiveTab('pin');
-      } else if (selectedVault.preferredAuthMethod === 'biometric' && selectedVault.biometricAuth?.enabled) {
-        setActiveTab('biometric');
+    if (selectedVault && registeredMethods.length > 0) {
+      const preferred = selectedVault.preferredAuthMethod;
+      const isPreferredRegistered = preferred && registeredMethods.some((m) => m.id === preferred);
+      if (isPreferredRegistered) {
+        setActiveTab(preferred as AuthMethodType);
+      } else if (!registeredMethods.some((m) => m.id === activeTab) && activeTab !== 'recovery') {
+        setActiveTab(registeredMethods[0].id);
       }
     }
-  }, [selectedVault]);
+  }, [selectedVault, registeredMethods, activeTab]);
 
   // Throttling countdown timer for repeated failed password attempts
   useEffect(() => {
@@ -135,7 +185,6 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
       if (success) {
         onNavigate('dashboard');
       } else {
-        // Refresh vault to get updated attempt counter
         await refreshVaults();
         setErrorMsg('Authentication failed: Incorrect PIN.');
       }
@@ -160,6 +209,28 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Biometric authentication cancelled or rejected');
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
+
+  // Iris Scanner Unlock
+  const handleIrisUnlock = async () => {
+    if (!selectedVault?.irisAuth?.hardwareConnected) {
+      // In demo mode without certified hardware, launch scanner HUD for interactive demonstration
+      setIsIrisModalOpen(true);
+      return;
+    }
+
+    setIsUnlocking(true);
+    setErrorMsg(null);
+    try {
+      const success = await unlockWithIris(selectedVaultId);
+      if (success) {
+        onNavigate('dashboard');
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Iris authentication failed');
     } finally {
       setIsUnlocking(false);
     }
@@ -194,14 +265,14 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
           Unlock Encrypted Vault
         </h2>
         <p className="text-xs text-cyber-muted mt-1">
-          Multi-layer envelope decryption & authenticated key unwrap
+          Authenticate using credentials registered to your security profile
         </p>
       </div>
 
-      <div className="p-6 sm:p-7 rounded-2xl bg-cyber-card border border-cyber-border shadow-cyber relative">
+      <div className="p-6 sm:p-7 rounded-2xl bg-cyber-card border border-cyber-border shadow-cyber relative space-y-5">
         {/* Caps Lock warning */}
         {isCapsOn && activeTab === 'password' && (
-          <div className="mb-4 flex items-center gap-2 p-2.5 rounded-lg bg-cyber-warning/15 border border-cyber-warning/40 text-cyber-warning text-xs font-mono">
+          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-cyber-warning/15 border border-cyber-warning/40 text-cyber-warning text-xs font-mono">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>Caps Lock is ON</span>
           </div>
@@ -209,7 +280,7 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
 
         {/* Delay countdown notice */}
         {delaySeconds > 0 && activeTab === 'password' && (
-          <div className="mb-4 flex items-center gap-2 p-2.5 rounded-lg bg-cyber-danger/15 border border-cyber-danger/40 text-cyber-danger text-xs font-mono">
+          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-cyber-danger/15 border border-cyber-danger/40 text-cyber-danger text-xs font-mono">
             <Clock className="w-4 h-4 shrink-0 animate-spin" />
             <span>Throttling active: wait {delaySeconds}s before retrying</span>
           </div>
@@ -217,9 +288,9 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
 
         {/* Vault Selector (if multiple exist) */}
         {availableVaults.length > 1 && (
-          <div className="mb-5 space-y-1.5">
+          <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-cyber-muted uppercase tracking-wider">
-              Select Vault:
+              Select Security Account:
             </label>
             <select
               value={selectedVaultId}
@@ -238,81 +309,165 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
           </div>
         )}
 
-        {/* Authentication Layer Switcher Tabs */}
-        <div className="grid grid-cols-4 gap-1 p-1 bg-cyber-bgSecondary/90 rounded-xl border border-cyber-border mb-6">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('password');
-              setErrorMsg(null);
-            }}
-            className={`py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-              activeTab === 'password'
-                ? 'bg-cyber-card text-cyber-cyan border border-cyber-cyan/30 shadow-cyber-sm'
-                : 'text-cyber-muted hover:text-white'
-            }`}
-          >
-            <Key className="w-4 h-4" />
-            <span>Password</span>
-          </button>
+        {/* ACCOUNT STATUS & REGISTERED METHODS BADGE (Requirement 6) */}
+        {selectedVault && (
+          <div className="p-3 rounded-xl bg-cyber-bgSecondary/80 border border-cyber-border/70 text-[11px] space-y-1.5">
+            <div className="flex items-center justify-between text-cyber-muted">
+              <span className="font-bold text-white uppercase tracking-wider">User Account:</span>
+              <span className="text-cyber-cyan font-bold">{selectedVault.name}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-cyber-border/40">
+              <span className="text-cyber-muted text-[10px]">Registered Methods:</span>
+              {selectedVault.biometricAuth?.enabled && (
+                <span className="px-1.5 py-0.5 rounded bg-cyber-success/15 border border-cyber-success/30 text-cyber-success text-[10px] font-bold flex items-center gap-1">
+                  <Fingerprint className="w-3 h-3" />
+                  <span>Fingerprint</span>
+                </span>
+              )}
+              {selectedVault.pinAuth?.enabled && (
+                <span className="px-1.5 py-0.5 rounded bg-cyber-success/15 border border-cyber-success/30 text-cyber-success text-[10px] font-bold flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  <span>6-PIN</span>
+                </span>
+              )}
+              {selectedVault.irisAuth?.registered && (
+                <span className="px-1.5 py-0.5 rounded bg-cyber-warning/15 border border-cyber-warning/30 text-cyber-warning text-[10px] font-bold flex items-center gap-1">
+                  <Eye className="w-3 h-3" />
+                  <span>Iris</span>
+                </span>
+              )}
+              <span className="px-1.5 py-0.5 rounded bg-cyber-cyan/10 border border-cyber-cyan/30 text-cyber-cyan text-[10px] font-bold flex items-center gap-1">
+                <Key className="w-3 h-3" />
+                <span>Password</span>
+              </span>
+            </div>
+          </div>
+        )}
 
-          <button
-            type="button"
-            disabled={!selectedVault?.pinAuth?.enabled}
-            onClick={() => {
-              setActiveTab('pin');
-              setErrorMsg(null);
-            }}
-            className={`py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all disabled:opacity-30 disabled:pointer-events-none ${
-              activeTab === 'pin'
-                ? 'bg-cyber-card text-cyber-cyan border border-cyber-cyan/30 shadow-cyber-sm'
-                : 'text-cyber-muted hover:text-white'
-            }`}
-            title={selectedVault?.pinAuth?.enabled ? 'Unlock with 6-digit PIN' : 'PIN unconfigured'}
-          >
-            <Lock className="w-4 h-4" />
-            <span>6-PIN</span>
-          </button>
+        {/* DYNAMIC TAB SELECTOR: Displays ONLY methods actually registered by this user account */}
+        {registeredMethods.length > 1 && (
+          <div className={`grid gap-1 p-1 bg-cyber-bgSecondary/90 rounded-xl border border-cyber-border ${
+            registeredMethods.length === 2
+              ? 'grid-cols-2'
+              : registeredMethods.length === 3
+              ? 'grid-cols-3'
+              : 'grid-cols-4'
+          }`}>
+            {registeredMethods.map((method) => {
+              const Icon = method.icon;
+              const isActive = activeTab === method.id;
 
-          <button
-            type="button"
-            disabled={!selectedVault?.biometricAuth?.enabled && !hasPlatformBio}
-            onClick={() => {
-              setActiveTab('biometric');
-              setErrorMsg(null);
-            }}
-            className={`py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all disabled:opacity-30 disabled:pointer-events-none ${
-              activeTab === 'biometric'
-                ? 'bg-cyber-card text-cyber-cyan border border-cyber-cyan/30 shadow-cyber-sm'
-                : 'text-cyber-muted hover:text-white'
-            }`}
-            title="Biometric passkey unlock"
-          >
-            <Fingerprint className="w-4 h-4" />
-            <span>Biometric</span>
-          </button>
+              return (
+                <button
+                  key={method.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(method.id);
+                    setErrorMsg(null);
+                  }}
+                  className={`py-2 px-1 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+                    isActive
+                      ? 'bg-cyber-card text-cyber-cyan border border-cyber-cyan/30 shadow-cyber-sm'
+                      : 'text-cyber-muted hover:text-white'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="truncate max-w-[85px]">{method.shortLabel}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('iris');
-              setErrorMsg(null);
-            }}
-            className={`py-2 rounded-lg text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
-              activeTab === 'iris'
-                ? 'bg-cyber-card text-cyber-cyan border border-cyber-cyan/30 shadow-cyber-sm'
-                : 'text-cyber-muted hover:text-white'
-            }`}
-            title="Iris & Retinal Biometrics Station"
-          >
-            <Eye className="w-4 h-4" />
-            <span>Iris</span>
-          </button>
-        </div>
+        {/* METHOD 1: FINGERPRINT UNLOCK (Real WebAuthn assertion) */}
+        {activeTab === 'biometric' && selectedVault?.biometricAuth?.enabled && (
+          <div className="py-4 text-center space-y-5 animate-fade-in">
+            <div className="relative w-24 h-24 mx-auto rounded-full bg-cyber-card border-2 border-cyber-cyan/40 flex items-center justify-center shadow-[0_0_30px_rgba(34,227,255,0.2)]">
+              <div className="absolute inset-1 rounded-full border border-dashed border-cyber-cyan/30 animate-spin" style={{ animationDuration: '8s' }} />
+              <Fingerprint className="w-12 h-12 text-cyber-cyan animate-pulse drop-shadow-[0_0_10px_#22E3FF]" />
+            </div>
 
-        {/* TAB 1: MASTER PASSWORD */}
+            <div>
+              <h3 className="text-sm font-bold text-white tracking-wider uppercase">
+                Unlock with Fingerprint
+              </h3>
+              <p className="text-xs text-cyber-muted mt-1 max-w-xs mx-auto">
+                Touch sensor or look at Windows Hello when prompted
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={isUnlocking}
+              onClick={handleBiometricUnlock}
+              className="w-full h-11 bg-cyber-primary hover:bg-cyber-primary/80 disabled:opacity-50 text-white font-mono font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-cyber transition-all"
+            >
+              {isUnlocking ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Awaiting Biometric Verification...</span>
+                </>
+              ) : (
+                <>
+                  <Fingerprint className="w-4 h-4" />
+                  <span>Authenticate with Fingerprint</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* METHOD 2: SIX-DIGIT PIN UNLOCK */}
+        {activeTab === 'pin' && selectedVault?.pinAuth?.enabled && (
+          <div className="py-2 animate-fade-in">
+            <PinKeypad
+              onComplete={handlePinUnlock}
+              disabled={isUnlocking}
+              failedAttempts={selectedVault.pinAuth.failedAttempts || 0}
+              maxAttempts={selectedVault.pinAuth.maxAttempts || 5}
+              lockedUntil={selectedVault.pinAuth.lockedUntil || 0}
+              title="Unlock with Six-Digit PIN"
+              subtitle="Decrypts PIN Envelope with Argon2id"
+            />
+          </div>
+        )}
+
+        {/* METHOD 3: IRIS SCANNER UNLOCK */}
+        {activeTab === 'iris' && selectedVault?.irisAuth?.registered && (
+          <div className="py-4 text-center space-y-4 animate-fade-in">
+            <div className="relative w-24 h-24 mx-auto rounded-full bg-cyber-card border-2 border-cyber-warning/40 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.2)]">
+              <Eye className="w-12 h-12 text-cyber-warning animate-pulse drop-shadow-[0_0_10px_#F59E0B]" />
+            </div>
+
+            <div>
+              <div className="inline-block px-2.5 py-0.5 rounded bg-cyber-warning/20 border border-cyber-warning/40 text-cyber-warning text-[10px] font-bold uppercase mb-1">
+                {selectedVault.irisAuth.hardwareConnected ? 'HARDWARE CONNECTED' : 'DEMONSTRATION MODE'}
+              </div>
+              <h3 className="text-sm font-bold text-white tracking-wider uppercase">
+                Unlock with Iris Scan
+              </h3>
+              <p className="text-[11px] text-cyber-muted mt-1 leading-relaxed">
+                {selectedVault.irisAuth.hardwareConnected
+                  ? 'ISO/IEC 19794-6 NIR optical sensor authentication'
+                  : 'Demonstration Mode: Interactive pupil localization and Gabor texture matching'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={isUnlocking}
+              onClick={handleIrisUnlock}
+              className="w-full h-11 bg-cyber-elevated hover:bg-cyber-card border border-cyber-warning/50 text-cyber-warning font-mono font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-cyber-sm"
+            >
+              <Eye className="w-4 h-4" />
+              <span>{selectedVault.irisAuth.hardwareConnected ? 'Authenticate with Iris Sensor' : 'Open Iris Scanner HUD'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* METHOD 4: MASTER PASSWORD UNLOCK (Always available) */}
         {activeTab === 'password' && (
-          <form onSubmit={handlePasswordUnlock} className="space-y-4">
+          <form onSubmit={handlePasswordUnlock} className="space-y-4 animate-fade-in">
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-[11px] font-bold text-cyber-muted uppercase tracking-wider flex items-center gap-1.5">
@@ -366,7 +521,7 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
               ) : (
                 <>
                   <Unlock className="w-4 h-4" />
-                  <span>Unlock Vault (KEK Unwrap)</span>
+                  <span>Unlock with Master Password</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -374,92 +529,9 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
           </form>
         )}
 
-        {/* TAB 2: SIX-DIGIT PIN */}
-        {activeTab === 'pin' && selectedVault?.pinAuth && (
-          <div className="py-2">
-            <PinKeypad
-              onComplete={handlePinUnlock}
-              disabled={isUnlocking}
-              failedAttempts={selectedVault.pinAuth.failedAttempts || 0}
-              maxAttempts={selectedVault.pinAuth.maxAttempts || 5}
-              lockedUntil={selectedVault.pinAuth.lockedUntil || 0}
-              title="Enter 6-Digit PIN"
-              subtitle="Decrypts PIN Envelope with Argon2id"
-            />
-          </div>
-        )}
-
-        {/* TAB 3: BIOMETRIC / WEBAUTHN */}
-        {activeTab === 'biometric' && (
-          <div className="py-4 text-center space-y-5">
-            <div className="relative w-24 h-24 mx-auto rounded-full bg-cyber-card border-2 border-cyber-cyan/40 flex items-center justify-center shadow-[0_0_30px_rgba(34,227,255,0.2)]">
-              <div className="absolute inset-1 rounded-full border border-dashed border-cyber-cyan/30 animate-spin" style={{ animationDuration: '8s' }} />
-              <Fingerprint className="w-12 h-12 text-cyber-cyan animate-pulse drop-shadow-[0_0_10px_#22E3FF]" />
-            </div>
-
-            <div>
-              <h3 className="text-sm font-bold text-white tracking-wider uppercase">
-                Platform Biometrics
-              </h3>
-              <p className="text-xs text-cyber-muted mt-1 max-w-xs mx-auto">
-                Windows Hello / Touch ID / FIDO2 Authenticator
-              </p>
-            </div>
-
-            <button
-              type="button"
-              disabled={isUnlocking}
-              onClick={handleBiometricUnlock}
-              className="w-full h-11 bg-cyber-primary hover:bg-cyber-primary/80 disabled:opacity-50 text-white font-mono font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-cyber transition-all"
-            >
-              {isUnlocking ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Awaiting Biometric Assertion...</span>
-                </>
-              ) : (
-                <>
-                  <Fingerprint className="w-4 h-4" />
-                  <span>Touch Sensor / Windows Hello</span>
-                </>
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* TAB 4: IRIS & RETINAL SCANNER */}
-        {activeTab === 'iris' && (
-          <div className="py-4 text-center space-y-4">
-            <div className="relative w-24 h-24 mx-auto rounded-full bg-cyber-card border-2 border-cyber-warning/40 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.2)]">
-              <Eye className="w-12 h-12 text-cyber-warning animate-pulse drop-shadow-[0_0_10px_#F59E0B]" />
-            </div>
-
-            <div>
-              <div className="inline-block px-2.5 py-0.5 rounded bg-cyber-warning/20 border border-cyber-warning/40 text-cyber-warning text-[10px] font-bold uppercase mb-1">
-                Demonstration Mode
-              </div>
-              <h3 className="text-sm font-bold text-white tracking-wider uppercase">
-                Iris & Retinal Biometrics Station
-              </h3>
-              <p className="text-[11px] text-cyber-muted mt-1 leading-relaxed">
-                Optical pupil localization and Gabor wavelet texture matching demonstration.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsIrisModalOpen(true)}
-              className="w-full h-11 bg-cyber-elevated hover:bg-cyber-card border border-cyber-warning/50 text-cyber-warning font-mono font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-cyber-sm"
-            >
-              <Eye className="w-4 h-4" />
-              <span>Launch Iris Optical Scanner HUD</span>
-            </button>
-          </div>
-        )}
-
-        {/* TAB 5: EMERGENCY RECOVERY KEY */}
+        {/* METHOD 5: EMERGENCY RECOVERY KEY */}
         {activeTab === 'recovery' && (
-          <form onSubmit={handleRecoveryUnlock} className="space-y-4">
+          <form onSubmit={handleRecoveryUnlock} className="space-y-4 animate-fade-in">
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-[11px] font-bold text-cyber-warning uppercase tracking-wider flex items-center gap-1.5">
@@ -481,7 +553,7 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
                   setRecoveryKeyInput(e.target.value);
                   setErrorMsg(null);
                 }}
-                placeholder="Paste your 64-character hex or hyphenated recovery key..."
+                placeholder="Paste your 64-character hex recovery key..."
                 rows={3}
                 required
                 className="w-full p-3 bg-cyber-bgSecondary border border-cyber-border rounded-xl text-xs font-mono text-white placeholder-cyber-muted/40 focus:outline-none focus:border-cyber-warning transition-colors resize-none"
@@ -502,14 +574,14 @@ export const UnlockVault: React.FC<UnlockVaultProps> = ({ onNavigate }) => {
 
         {/* Error Message */}
         {errorMsg && (
-          <div className="mt-4 p-3 rounded-xl bg-cyber-danger/10 border border-cyber-danger/40 text-cyber-danger text-xs font-mono flex items-start gap-2.5">
+          <div className="p-3 rounded-xl bg-cyber-danger/10 border border-cyber-danger/40 text-cyber-danger text-xs font-mono flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {/* Footer info */}
-        <div className="mt-6 pt-4 border-t border-cyber-border/60 flex items-center justify-between text-[11px] text-cyber-muted font-mono">
+        <div className="pt-4 border-t border-cyber-border/60 flex items-center justify-between text-[11px] text-cyber-muted font-mono">
           <button
             type="button"
             onClick={() => onNavigate('create')}

@@ -19,7 +19,8 @@ import {
   CheckCircle2,
   Clock,
   Sparkles,
-  Fingerprint
+  Fingerprint,
+  ShieldCheck
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -72,11 +73,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           </button>
 
           <button
-            onClick={() => onNavigate('auth')}
+            onClick={() => onNavigate('identity')}
             className="px-3.5 py-2 rounded-xl bg-cyber-card hover:bg-cyber-elevated border border-cyber-border hover:border-cyber-cyan/40 text-cyber-cyan text-xs font-mono font-bold transition-colors flex items-center gap-1.5"
           >
-            <Fingerprint className="w-3.5 h-3.5" />
-            <span>Auth Layers</span>
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>My Identity & Security</span>
           </button>
 
           <button

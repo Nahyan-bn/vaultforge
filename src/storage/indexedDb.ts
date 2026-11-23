@@ -9,6 +9,7 @@ import type {
   PinAuthConfig,
   BiometricAuthConfig,
   IrisScanConfig,
+  IrisAuthConfig,
   GovernmentVerificationRecord,
   AuthMethodType
 } from '../types/auth';
@@ -26,6 +27,7 @@ export interface VaultMetadata {
   pinAuth?: PinAuthConfig;
   biometricAuth?: BiometricAuthConfig;
   irisConfig?: IrisScanConfig;
+  irisAuth?: IrisAuthConfig;
   govVerification?: GovernmentVerificationRecord;
   preferredAuthMethod?: AuthMethodType;
 }
